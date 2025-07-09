@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
 
 # Set page configuration
 st.set_page_config(
@@ -78,7 +76,7 @@ with st.sidebar:
     
     st.markdown("---")
     st.header("📈 Market Context")
-    st.info("Higher G-BA scores typically correlate with premium pricing opportunities, especially for products addressing unmet medical needs.")
+    st.info("Higher G-BA scores (lower numbers) typically correlate with premium pricing opportunities, especially for products addressing unmet medical needs.")
 
 # Main content area
 col1, col2 = st.columns([2, 1])
@@ -218,36 +216,27 @@ with col2:
         
         st.dataframe(factors_df, hide_index=True, use_container_width=True)
         
-        # G-BA scores radar chart (inverted for better visualization)
+        # G-BA scores visualization using Streamlit charts
         st.subheader("🎯 G-BA Score Profile")
         
-        categories = ['QoL', 'Mortality', 'Morbidity', 'Safety', 'Study Design', 'Overall']
-        # Invert scores for visualization (so better scores appear larger on chart)
-        scores_inverted = [7-qol_score, 7-mortality_score, 7-morbidity_score, 7-safety_score, 7-study_design_score, 7-overall_gba_score]
+        # Create a dataframe for the scores
+        scores_df = pd.DataFrame({
+            'Criterion': ['QoL', 'Mortality', 'Morbidity', 'Safety', 'Study Design', 'Overall'],
+            'Score': [qol_score, mortality_score, morbidity_score, safety_score, study_design_score, overall_gba_score],
+            'Inverted_Score': [7-qol_score, 7-mortality_score, 7-morbidity_score, 7-safety_score, 7-study_design_score, 7-overall_gba_score]
+        })
         
-        fig = go.Figure()
-        fig.add_trace(go.Scatterpolar(
-            r=scores_inverted,
-            theta=categories,
-            fill='toself',
-            name='Current Product',
-            line_color='rgb(31, 119, 180)'
-        ))
+        # Display as bar chart (inverted so higher bars = better scores)
+        st.bar_chart(scores_df.set_index('Criterion')['Inverted_Score'], height=300)
+        st.caption("Higher bars = Better G-BA scores (lower numerical values)")
         
-        fig.update_layout(
-            polar=dict(
-                radialaxis=dict(
-                    visible=True,
-                    range=[0, 6],
-                    tickvals=[1, 2, 3, 4, 5, 6],
-                    ticktext=['6 (Poor)', '5', '4', '3', '2', '1 (Excellent)']
-                )),
-            showlegend=False,
-            height=300,
-            title="Higher values = Better G-BA scores"
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
+        # Display the actual scores in a table
+        display_scores = scores_df[['Criterion', 'Score']].copy()
+        display_scores['Rating'] = display_scores['Score'].map({
+            1: '1 - Excellent', 2: '2 - Very Good', 3: '3 - Good', 
+            4: '4 - Moderate', 5: '5 - Poor', 6: '6 - Very Poor'
+        })
+        st.dataframe(display_scores[['Criterion', 'Rating']], hide_index=True, use_container_width=True)
 
 # Save prediction functionality
 st.markdown("---")
@@ -297,30 +286,17 @@ if not st.session_state.predictions_df.empty:
     st.subheader("📋 Predictions Database")
     st.dataframe(st.session_state.predictions_df, hide_index=True, use_container_width=True)
     
-    # Analytics section
+    # Analytics section using Streamlit built-in charts
     col_analytics1, col_analytics2 = st.columns(2)
     
     with col_analytics1:
         st.subheader("💰 Price Distribution")
-        fig_price = px.histogram(
-            st.session_state.predictions_df, 
-            x='Predicted_Price',
-            title="Distribution of Predicted Prices",
-            labels={'Predicted_Price': 'Predicted Price (€)'}
-        )
-        st.plotly_chart(fig_price, use_container_width=True)
+        st.histogram_chart(st.session_state.predictions_df['Predicted_Price'], bins=10)
     
     with col_analytics2:
         st.subheader("🎯 G-BA Scores vs Price")
-        fig_scatter = px.scatter(
-            st.session_state.predictions_df, 
-            x='Overall_GBA_Assessment', 
-            y='Predicted_Price',
-            hover_name='Product_Name',
-            title="G-BA Score vs Predicted Price",
-            labels={'Overall_GBA_Assessment': 'Overall G-BA Score', 'Predicted_Price': 'Predicted Price (€)'}
-        )
-        st.plotly_chart(fig_scatter, use_container_width=True)
+        chart_data = st.session_state.predictions_df[['Overall_GBA_Assessment', 'Predicted_Price']].copy()
+        st.scatter_chart(chart_data.set_index('Overall_GBA_Assessment'))
     
     # Summary statistics
     st.subheader("📊 Summary Statistics")
@@ -358,23 +334,24 @@ if not st.session_state.predictions_df.empty:
     
     with col_download2:
         # Create summary report
-        summary_stats = {
-            'Total_Products': len(st.session_state.predictions_df),
-            'Average_Predicted_Price': st.session_state.predictions_df['Predicted_Price'].mean(),
-            'Average_GBA_Score': st.session_state.predictions_df['Overall_GBA_Assessment'].mean(),
-            'Price_Range': price_range,
-            'Highest_Priced_Product': st.session_state.predictions_df.loc[st.session_state.predictions_df['Predicted_Price'].idxmax(), 'Product_Name'],
-            'Best_GBA_Score': st.session_state.predictions_df['Overall_GBA_Assessment'].max()
-        }
-        
-        summary_json = pd.Series(summary_stats).to_json(indent=2)
-        st.download_button(
-            label="📥 Download Summary Report",
-            data=summary_json,
-            file_name="gba_summary_report.json",
-            mime="application/json",
-            use_container_width=True
-        )
+        if len(st.session_state.predictions_df) > 0:
+            summary_stats = {
+                'Total_Products': len(st.session_state.predictions_df),
+                'Average_Predicted_Price': float(st.session_state.predictions_df['Predicted_Price'].mean()),
+                'Average_GBA_Score': float(st.session_state.predictions_df['Overall_GBA_Assessment'].mean()),
+                'Price_Range': float(price_range),
+                'Highest_Priced_Product': st.session_state.predictions_df.loc[st.session_state.predictions_df['Predicted_Price'].idxmax(), 'Product_Name'],
+                'Best_GBA_Score': float(st.session_state.predictions_df['Overall_GBA_Assessment'].min())  # Min because 1 is best
+            }
+            
+            summary_json = pd.Series(summary_stats).to_json(indent=2)
+            st.download_button(
+                label="📥 Download Summary Report",
+                data=summary_json,
+                file_name="gba_summary_report.json",
+                mime="application/json",
+                use_container_width=True
+            )
 
 else:
     st.info("📝 No predictions saved yet. Enter product details above and click 'Save Prediction' to start building your database.")
